@@ -14,10 +14,16 @@ USERNAME = cfg["leetcode_username"]
 PRIMARY_LANG = cfg.get("primary_language", "cpp")
 
 HEADERS = {
-    "Content-Type": "application/json",
-    "Referer": "https://leetcode.com",
-    "User-Agent": "Mozilla/5.0"
+    "authority": "leetcode.com",
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.9",
+    "content-type": "application/json",
+    "origin": "https://leetcode.com",
+    "referer": "https://leetcode.com",
+    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "cookie": f"LEETCODE_SESSION={cfg['cookie']}"
 }
+
 
 # Map LeetCode lang -> file extension
 LANG_EXT = {
@@ -47,64 +53,67 @@ def graphql(query: str, variables: dict):
 
 def fetch_submission_list():
     """
-    Paginate over all submissions for the user and yield accepted ones.
+    Fetch submissions using LeetCode REST API.
+    Handles both old and new API formats.
     """
-    query = """
-    query submissionList($username: String!, $offset: Int!, $limit: Int!) {
-      submissionList(username: $username, offset: $offset, limit: $limit) {
-        hasNext
-        submissions {
-          id
-          statusDisplay
-          lang
-          titleSlug
-          timestamp
-        }
-      }
-    }
-    """
+    submissions = []
     offset = 0
-    limit = 20
 
     while True:
-        data = graphql(query, {
-            "username": USERNAME,
-            "offset": offset,
-            "limit": limit
-        })["submissionList"]
+        url = f"https://leetcode.com/api/submissions/?offset={offset}&limit=20"
+        resp = requests.get(url, headers=HEADERS)
+        resp.raise_for_status()
+        data = resp.json()
 
-        for sub in data["submissions"]:
-            if sub["statusDisplay"] == "Accepted":
-                yield sub
+        # Support both formats
+        submission_list = data.get("submissions") or data.get("submission_list")
 
-        if not data["hasNext"]:
+        if not submission_list:
+            print("⚠️ No submissions field found in response!")
+            print("Response keys:", data.keys())
             break
-        offset += limit
-        # Be nice to LeetCode
-        time.sleep(0.5)
+
+        for sub in submission_list:
+            if sub.get("status_display") == "Accepted":
+                submissions.append({
+                    "id": sub["id"],
+                    "titleSlug": sub["title_slug"],
+                    "lang": sub["lang"],
+                })
+
+        # new API uses has_next; old API used different patterns
+        if not data.get("has_next", False):
+            break
+
+        offset += 20
+        time.sleep(0.3)
+
+    return submissions
 
 
 def fetch_submission_code(submission_id: int):
-    """
-    For a given submission id, fetch full code & more details.
-    """
-    query = """
-    query submissionDetails($submissionId: Int!) {
-      submissionDetails(submissionId: $submissionId) {
-        id
-        code
-        lang
-        runtime
-        memory
-        question {
-          titleSlug
-          title
-        }
-      }
-    }
-    """
-    data = graphql(query, {"submissionId": submission_id})["submissionDetails"]
-    return data
+    url = f"https://leetcode.com/submissions/detail/{submission_id}/"
+    resp = requests.get(url, headers=HEADERS)
+    resp.raise_for_status()
+    text = resp.text
+
+    # Extract code from HTML
+    start = text.find("submissionCode: '") + len("submissionCode: '")
+    end = text.find("',\n  runtime", start)
+    code = text[start:end].encode().decode('unicode_escape')
+
+    # Extract language
+    lang_start = text.find("getLangDisplay: '") + len("getLangDisplay: '")
+    lang_end = text.find("',\n  memory", lang_start)
+    lang = text[lang_start:lang_end]
+
+    # Extract slug
+    slug_start = text.find("questionTitleSlug: '") + len("questionTitleSlug: '")
+    slug_end = text.find("',\n  title", slug_start)
+    slug = text[slug_start:slug_end]
+
+    return {"code": code, "lang": lang, "slug": slug}
+
 
 
 def main():
