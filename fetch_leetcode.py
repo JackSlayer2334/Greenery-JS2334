@@ -14,15 +14,19 @@ USERNAME = cfg["leetcode_username"]
 PRIMARY_LANG = cfg.get("primary_language", "cpp")
 
 HEADERS = {
-    "authority": "leetcode.com",
     "accept": "*/*",
     "accept-language": "en-US,en;q=0.9",
     "content-type": "application/json",
     "origin": "https://leetcode.com",
     "referer": "https://leetcode.com",
-    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "cookie": f"LEETCODE_SESSION={cfg['cookie']}"
+    "user-agent": "Mozilla/5.0",
+    "x-csrftoken": cfg["csrftoken"],
+    "cookie": (
+        f"LEETCODE_SESSION={cfg['cookie']}; "
+        f"csrftoken={cfg['csrftoken']}"
+    )
 }
+
 
 
 # Map LeetCode lang -> file extension
